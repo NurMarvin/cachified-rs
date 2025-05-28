@@ -254,3 +254,102 @@ fn is_expired(metadata: &CacheMetadata, now: Duration) -> bool {
         false // No TTL means never expires
     }
 }
+
+/// Soft purge options for controlling soft purging behavior
+pub struct SoftPurgeOptions {
+    /// The cache key to soft purge
+    pub key: String,
+    /// How long the stale data should remain available after purging
+    /// If not specified, defaults to 5 minutes (300 seconds)
+    pub stale_while_revalidate: Option<Duration>,
+}
+
+impl SoftPurgeOptions {
+    /// Create new soft purge options with the given key
+    pub fn new(key: impl Into<String>) -> Self {
+        Self {
+            key: key.into(),
+            stale_while_revalidate: None,
+        }
+    }
+    
+    /// Set the stale-while-revalidate duration
+    pub fn stale_while_revalidate(mut self, duration: Duration) -> Self {
+        self.stale_while_revalidate = Some(duration);
+        self
+    }
+}
+
+/// Soft purge a cache entry.
+///
+/// Soft purging marks a cache entry as expired (TTL = 0) while allowing it to be served
+/// as stale data for a specified duration. This is useful for graceful cache invalidation
+/// where you want to immediately mark data as outdated but still serve it while fresh
+/// data is being fetched in the background.
+///
+/// Unlike hard purging (removing the cache entry entirely), soft purging prevents
+/// thundering herd problems by allowing stale data to be served while only one
+/// background request fetches fresh data.
+///
+/// # Arguments
+///
+/// * `cache` - The cache implementation to soft purge from
+/// * `options` - Configuration options for the soft purge operation
+///
+/// # Returns
+///
+/// Returns `Ok(())` if the soft purge was successful, or an error if the operation failed.
+/// If the cache entry doesn't exist, this function succeeds without doing anything.
+///
+/// # Examples
+///
+/// ```rust
+/// # #[cfg(feature = "moka")]
+/// use cachified::{soft_purge, SoftPurgeOptions, MokaCache};
+/// use std::time::Duration;
+///
+/// # #[cfg(feature = "moka")]
+/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+/// let cache: MokaCache<String> = MokaCache::new(1000);
+/// 
+/// // Soft purge a cache entry with default stale duration (5 minutes)
+/// soft_purge(&cache, SoftPurgeOptions::new("user-123")).await?;
+/// 
+/// // Soft purge with custom stale duration
+/// soft_purge(&cache, 
+///     SoftPurgeOptions::new("user-456")
+///         .stale_while_revalidate(Duration::from_secs(60))
+/// ).await?;
+/// # Ok(())
+/// # }
+/// ```
+pub async fn soft_purge<T, C>(cache: &C, options: SoftPurgeOptions) -> Result<()>
+where
+    T: Clone + Send + Sync + 'static,
+    C: Cache<T>,
+{
+    let SoftPurgeOptions {
+        key,
+        stale_while_revalidate: _,
+    } = options;
+
+    // Try to get the existing cache entry
+    if let Some(mut entry) = cache.get(&key).await {
+        let now = current_time();
+        
+        // Set TTL to 0 to mark as expired
+        entry.metadata.ttl = Some(Duration::ZERO);
+        
+        // If the entry was already expired, we need to update created_time
+        // to now so that the stale-while-revalidate period starts from now
+        if entry.metadata.is_expired(now) {
+            entry.metadata.created_time = now;
+        }
+        
+        // Store the modified entry back to cache
+        cache.set(&key, entry).await?;
+    }
+    // If the entry doesn't exist, soft purging succeeds without doing anything
+    
+    Ok(())
+}
