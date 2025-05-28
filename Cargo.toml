@@ -1,0 +1,34 @@
+[package]
+name = "cachified"
+version = "0.0.1-alpha.1"
+edition = "2024"
+authors = ["Marvin Witt <contact@nurmarv.in>"]
+description = "A Rust port of the cachified library"
+documentation = "https://docs.rs/cachified"
+readme = "README.md"
+license = "MIT"
+repository = "https://github.com/NurMarvin/cachified-rs"
+keywords = ["cache", "caching", "ttl", "swr"]
+categories = ["caching", "web-programming"]
+exclude = ["tests/*", "examples/*"]
+
+[dependencies]
+moka = { version = "0.12", features = ["future"], optional = true }
+tokio = { version = "1.0", features = ["full"] }
+serde = { version = "1.0", features = ["derive"], optional = true }
+serde_json = { version = "1.0", optional = true }
+thiserror = "2"
+tracing = { version = "0.1", optional = true }
+async-trait = "0.1"
+redis = { version = "0.24", features = ["tokio-comp"], optional = true }
+
+[dev-dependencies]
+tokio-test = "0.4"
+assert_matches = "1.5"
+
+[features]
+default = ["serde", "moka"]
+serde = ["dep:serde", "dep:serde_json"]
+tracing = ["dep:tracing"]
+moka = ["dep:moka"]
+redis = ["dep:redis"]
